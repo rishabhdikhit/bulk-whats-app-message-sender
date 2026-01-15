@@ -1,6 +1,5 @@
 # whatsapp_sender.py
 # WhatsApp Bulk Message Sender using Selenium
-# Created for automated WhatsApp messaging via WhatsApp Web
 
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -13,24 +12,54 @@ import time
 import csv
 import os
 import random
+import ctypes  # Required to prevent system sleep
 
 # ============================================================
-# CONFIGURATION - EDIT THESE SETTINGS
+# CONFIGURATION
 # ============================================================
 
-# Your message template - use {name} where you want the person's name
-MESSAGE_TEMPLATE = """Hi {name}, I'm Rishabh from Dunnwood Health. We are currently hiring for the role of Customer Excellence Executive in Bengaluru and came across your profile on Apna. Could you please let me know a convenient time for a quick call to discuss this opportunity?"""
+MESSAGE_TEMPLATE = """Exciting Job Opportunity: Telesales Executive
 
-# Delay between messages in seconds (will be random between MIN and MAX)
-DELAY_MIN_SECONDS = 3
-DELAY_MAX_SECONDS = 10
+Hi {name},
 
-# Name of your contacts file
+I found your profile on Job Hai. I have a vacancy for: 
+
+Tele Sales Executive
+Company - DUNNWOOD HEALTH PRIVATE LIMITED 
+Salary - ₹20000 per month (in hand) + 15000 (Performance Based Incentive) 
+Location - Uttam Nagar, Delhi 
+
+If interested, please share your resume"""
+
+# Short delay between individual messages
+DELAY_MIN_SECONDS = 10
+DELAY_MAX_SECONDS = 40
+
+# --- SPAM PROTECTION CONFIGURATION ---
+# Pause after sending this many messages (randomized range)
+BATCH_SIZE_MIN = 15
+BATCH_SIZE_MAX = 20
+
+# How long to wait when batch limit is reached (in seconds)
+# 300 sec = 5 mins, 600 sec = 10 mins
+LONG_PAUSE_MIN_SECONDS = 300
+LONG_PAUSE_MAX_SECONDS = 600
+
 CONTACTS_FILE = "contacts.csv"
 
 # ============================================================
-# MAIN PROGRAM - DO NOT EDIT BELOW THIS LINE
+# SYSTEM FUNCTIONS
 # ============================================================
+
+def prevent_sleep():
+    """Prevents Windows from sleeping while script is running"""
+    # ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_DISPLAY_REQUIRED
+    ctypes.windll.kernel32.SetThreadExecutionState(0x80000003)
+
+def allow_sleep():
+    """Allows Windows to sleep again"""
+    # ES_CONTINUOUS
+    ctypes.windll.kernel32.SetThreadExecutionState(0x80000000)
 
 def print_header():
     print("\n" + "=" * 70)
@@ -40,19 +69,11 @@ def print_header():
 def check_contacts_file():
     if not os.path.exists(CONTACTS_FILE):
         print(f"❌ ERROR: {CONTACTS_FILE} not found!")
-        print(f"\nPlease create {CONTACTS_FILE} with the following format:")
-        print("-" * 50)
-        print("Name,Phone")
-        print("Sudhanshu Kumar,919876543210")
-        print("Naresh Prajapati,919876543211")
-        print("-" * 50)
-        input("\nPress Enter to exit...")
         return False
     return True
 
 def setup_driver():
     print("🔧 Setting up Chrome browser...")
-    
     options = Options()
     options.add_argument("--start-maximized")
     options.add_argument("--disable-blink-features=AutomationControlled")
@@ -61,12 +82,10 @@ def setup_driver():
     options.add_experimental_option("detach", True)
     
     try:
-        # Try to use webdriver-manager
         try:
             from webdriver_manager.chrome import ChromeDriverManager
             service = Service(ChromeDriverManager().install())
         except:
-            # Fallback to local chromedriver
             if os.path.exists("chromedriver.exe"):
                 service = Service("chromedriver.exe")
             else:
@@ -75,50 +94,31 @@ def setup_driver():
         driver = webdriver.Chrome(service=service, options=options)
         print("✅ Chrome browser started successfully!\n")
         return driver
-        
     except Exception as e:
-        print(f"\n❌ ERROR: Could not start Chrome browser")
-        print(f"Details: {str(e)}\n")
-        print("Please ensure:")
-        print("  1. Google Chrome is installed")
-        print("  2. Run setup.bat to install required packages")
-        input("\nPress Enter to exit...")
+        print(f"\n❌ ERROR: Could not start Chrome browser: {str(e)}\n")
         return None
 
 def load_contacts():
     print(f"📂 Loading contacts from {CONTACTS_FILE}...")
-    
-    contacts = []
     try:
         with open(CONTACTS_FILE, 'r', encoding='utf-8') as file:
             reader = csv.DictReader(file)
             contacts = list(reader)
-        
         if not contacts:
-            print(f"❌ ERROR: No contacts found in {CONTACTS_FILE}")
+            print(f"❌ ERROR: No contacts found")
             return None
-            
         print(f"✅ Loaded {len(contacts)} contacts\n")
         return contacts
-        
     except Exception as e:
         print(f"❌ ERROR reading contacts file: {str(e)}")
-        input("\nPress Enter to exit...")
         return None
 
 def wait_for_whatsapp_login(driver):
     driver.get("https://web.whatsapp.com")
-    
     print("=" * 70)
     print(" " * 20 + "⚡ SCAN QR CODE NOW! ⚡")
     print("=" * 70)
-    print("\n  1. Open WhatsApp on your phone")
-    print("  2. Go to Settings > Linked Devices")
-    print("  3. Tap 'Link a Device'")
-    print("  4. Scan the QR code on screen")
     print("\n  ⏰ Waiting 45 seconds for you to login...")
-    print("\n" + "=" * 70 + "\n")
-    
     time.sleep(45)
     print("✅ Proceeding to send messages...\n")
 
@@ -130,22 +130,15 @@ def send_message_to_contact(driver, contact, index, total):
         print(f"[{index}/{total}] ⚠️  Skipping - Missing name or phone")
         return False
     
-    # Clean phone number
     phone = ''.join(filter(str.isdigit, phone))
-    
-    # Personalize message
     message = MESSAGE_TEMPLATE.replace('{name}', name)
     
     print(f"[{index}/{total}] 📤 Sending to: {name} ({phone})")
     
     try:
-        # Navigate to chat
         driver.get(f"https://web.whatsapp.com/send?phone={phone}")
-        
-        # Wait for message box with extended timeout
         wait = WebDriverWait(driver, 40)
         
-        # Try multiple selectors for message box
         message_box = None
         selectors = [
             '//div[@contenteditable="true"][@data-tab="10"]',
@@ -155,9 +148,7 @@ def send_message_to_contact(driver, contact, index, total):
         
         for selector in selectors:
             try:
-                message_box = wait.until(
-                    EC.presence_of_element_located((By.XPATH, selector))
-                )
+                message_box = wait.until(EC.presence_of_element_located((By.XPATH, selector)))
                 break
             except:
                 continue
@@ -166,10 +157,7 @@ def send_message_to_contact(driver, contact, index, total):
             print(f"  ❌ Could not find message box")
             return False
         
-        # Small delay to ensure box is ready
         time.sleep(2)
-        
-        # Type message line by line
         lines = message.split('\n')
         for i, line in enumerate(lines):
             message_box.send_keys(line)
@@ -177,10 +165,7 @@ def send_message_to_contact(driver, contact, index, total):
                 message_box.send_keys(Keys.SHIFT + Keys.ENTER)
         
         time.sleep(1)
-        
-        # Send message
         message_box.send_keys(Keys.ENTER)
-        
         print(f"  ✅ Message sent successfully!")
         return True
         
@@ -190,26 +175,14 @@ def send_message_to_contact(driver, contact, index, total):
 
 def send_bulk_messages():
     print_header()
-    
-    # Check if contacts file exists
-    if not check_contacts_file():
-        return
-    
-    # Setup Chrome driver
+    if not check_contacts_file(): return
     driver = setup_driver()
-    if not driver:
-        return
-    
-    # Load contacts
+    if not driver: return
     contacts = load_contacts()
-    if not contacts:
-        driver.quit()
-        return
+    if not contacts: driver.quit(); return
     
-    # Wait for WhatsApp login
     wait_for_whatsapp_login(driver)
     
-    # Send messages
     print("=" * 70)
     print(" " * 20 + "🚀 SENDING MESSAGES...")
     print("=" * 70 + "\n")
@@ -217,21 +190,55 @@ def send_bulk_messages():
     successful = 0
     failed = 0
     
+    # Logic for Spam Protection
+    messages_in_current_batch = 0
+    current_batch_limit = random.randint(BATCH_SIZE_MIN, BATCH_SIZE_MAX)
+    
+    prevent_sleep() # Prevent sleep while script is active
+    
     for idx, contact in enumerate(contacts, 1):
         success = send_message_to_contact(driver, contact, idx, len(contacts))
         
         if success:
             successful += 1
+            messages_in_current_batch += 1
         else:
             failed += 1
         
-        # Wait before next message (random delay)
-        if idx < len(contacts):
+        # Check if we need a LONG PAUSE (Spam Protection)
+        if messages_in_current_batch >= current_batch_limit and idx < len(contacts):
+            wait_time = random.randint(LONG_PAUSE_MIN_SECONDS, LONG_PAUSE_MAX_SECONDS)
+            wait_mins = round(wait_time / 60, 1)
+            
+            print("\n" + "!" * 60)
+            print(f"🛡️  SPAM PROTECTION TRIGGERED")
+            print(f"   Sent {messages_in_current_batch} messages. Pausing for {wait_mins} minutes...")
+            print(f"   (Computer will remain awake)")
+            print("!" * 60 + "\n")
+            
+            # Countdown timer
+            remaining = wait_time
+            while remaining > 0:
+                print(f"   ⏳ Resuming in {remaining} seconds...", end='\r')
+                time.sleep(1)
+                remaining -= 1
+                # Refresh anti-sleep every second just in case
+                prevent_sleep()
+            
+            print("\n   ✅ Resuming sending now...\n")
+            
+            # Reset batch counters
+            messages_in_current_batch = 0
+            current_batch_limit = random.randint(BATCH_SIZE_MIN, BATCH_SIZE_MAX)
+            
+        # Standard short delay between messages
+        elif idx < len(contacts):
             delay = random.randint(DELAY_MIN_SECONDS, DELAY_MAX_SECONDS)
             print(f"  ⏳ Waiting {delay} seconds...\n")
             time.sleep(delay)
     
-    # Print summary
+    allow_sleep() # Allow sleep again
+    
     print("\n" + "=" * 70)
     print(" " * 25 + "📊 SUMMARY")
     print("=" * 70)
@@ -243,19 +250,16 @@ def send_bulk_messages():
     if successful > 0:
         print("\n🎉 Messages sent successfully!")
     
-    print("\n💡 Browser will remain open. Close it manually when done.")
     input("\nPress Enter to exit...")
-
-# ============================================================
-# RUN THE PROGRAM
-# ============================================================
 
 if __name__ == "__main__":
     try:
         send_bulk_messages()
     except KeyboardInterrupt:
         print("\n\n⚠️  Stopped by user (Ctrl+C)")
+        allow_sleep()
         input("\nPress Enter to exit...")
     except Exception as e:
         print(f"\n\n❌ Unexpected error: {str(e)}")
+        allow_sleep()
         input("\nPress Enter to exit...")
